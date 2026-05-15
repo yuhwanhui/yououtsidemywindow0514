@@ -3,7 +3,12 @@
  * SCADA 메인 대시보드 — 디자인 시스템
  * 배경 #F4F7F9, 5:5 그리드, 카드 12px·부드러운 그림자, gap 24px
  */
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { PieChart } from 'echarts/charts'
+import { GraphicComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { computed, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import {
   AlertTriangle,
   Bell,
@@ -11,30 +16,26 @@ import {
   CheckCircle2,
   Cog,
   Factory,
-  LayoutDashboard,
   LogOut,
   MapPinned,
   MessageSquare,
   Package,
-  Search,
   Siren,
-  UserCircle,
   Users,
   Wrench,
 } from 'lucide-vue-next'
+import VChart from 'vue-echarts'
+import 'vue-echarts/style.css'
+import { useAppNav } from '@/composables/useAppNav'
+import { useLogout } from '@/composables/useLogout'
+
+use([CanvasRenderer, PieChart, TooltipComponent, LegendComponent, GraphicComponent])
 
 /** 라인 카드 좌측 마크 (라인별 구분) */
 const lineMarkIcons = [Factory, Cog, Package]
 
-const navItems = [
-  { label: '대시보드', icon: LayoutDashboard, href: '#/dashboard', active: true },
-  { label: '레이아웃', icon: MapPinned, href: '#/layout' },
-  { label: '설비 제어', icon: Wrench, href: '#/equipment' },
-  { label: '알람 및 이력', icon: Bell, href: '#/alarms' },
-  { label: '사용자·권한', icon: Users, href: '#/users' },
-  { label: '커뮤니티', icon: MessageSquare, href: '#/community' },
-  { label: 'SWMP 테스트', icon: Wrench, href: '#/swmp-test' },
-]
+const { navItems } = useAppNav()
+const logout = useLogout()
 
 /** 전일 대비: 증가=빨강, 감소=파랑 */
 function yoyClass(delta) {
@@ -52,6 +53,13 @@ function yoyArrow(delta) {
 function yoyAbs(delta) {
   if (delta === 0) return '0'
   return `${Math.abs(delta)}`
+}
+
+/** 주식 시세형: 양수는 +접두, 음수는 그대로(이미 -) */
+function yoySignedDisplay(delta) {
+  if (delta === 0) return '0'
+  if (delta > 0) return `+${delta}`
+  return `${delta}`
 }
 
 const totalOeeDisplay = '91.3'
@@ -103,16 +111,18 @@ const oeeHourlySeries = ref([
 ])
 
 const oeeHourlyOptions = ref({
-  chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
-  plotOptions: {
-    bar: {
-      horizontal: false,
-      columnWidth: '52%',
-      borderRadius: 4,
-      dataLabels: { position: 'top' },
-    },
-  },
+  chart: { type: 'line', toolbar: { show: false }, fontFamily: 'inherit', zoom: { enabled: false } },
   colors: ['#002c5f', '#62b3ff', '#0a9f68'],
+  stroke: {
+    curve: 'straight',
+    width: 2.5,
+  },
+  markers: {
+    size: 4,
+    strokeWidth: 2,
+    strokeColors: '#ffffff',
+    hover: { size: 6 },
+  },
   dataLabels: {
     enabled: false,
   },
@@ -147,6 +157,8 @@ const oeeHourlyOptions = ref({
   },
   tooltip: {
     theme: 'light',
+    shared: true,
+    intersect: false,
     style: {
       fontSize: '14px',
       fontFamily: 'inherit',
@@ -201,95 +213,97 @@ const alarmSummaryByPeriod = {
 
 const alarmSummary = computed(() => alarmSummaryByPeriod[dashboardPeriod.value])
 
-/** 도넛 중앙 오버레이 (기본값 / 호버 시 슬라이스 반영) */
-const donutOverlayPrimary = ref('총 설비 대수')
-const donutOverlayValue = ref(`${equipmentTotalCount}대`)
-const donutOverlayIsHover = ref(false)
-
-function resetDonutOverlay() {
-  donutOverlayPrimary.value = '총 설비 대수'
-  donutOverlayValue.value = `${equipmentTotalCount}대`
-  donutOverlayIsHover.value = false
-}
+/** 도넛 중앙 대수만 표시 — 슬라이스 호버 시 숨겨 ECharts emphasis 중앙 라벨과 겹치지 않게 */
+const showDonutCenterSummary = ref(true)
 
 watch(dashboardPeriod, (p) => {
   statusDonutSeries.value = [...statusDonutByPeriod[p]]
-  resetDonutOverlay()
+  showDonutCenterSummary.value = true
 })
 
-function setDonutOverlayFromSlice(dataPointIndex) {
-  const i = dataPointIndex
-  const series = statusDonutSeries.value
-  const labels = statusDonutSliceLabels
-  if (i == null || i < 0 || i >= labels.length) return
-  donutOverlayPrimary.value = labels[i]
-  donutOverlayValue.value = `${series[i]}%`
-  donutOverlayIsHover.value = true
+function onStatusPieMouseOver(params) {
+  if (params.seriesType === 'pie') {
+    showDonutCenterSummary.value = false
+  }
 }
 
-/** 라인 카드 스파크라인 — 시간별 시리즈 마지막 구간 */
-function lineSparkPolyline(lineIdx) {
-  const raw = oeeHourlySeries.value[lineIdx]?.data ?? []
-  const w = 120
-  const h = 36
-  const pad = 2
-  const last = raw.slice(-10)
-  if (!last.length) return ''
-  const min = Math.min(...last)
-  const max = Math.max(...last)
-  const range = max - min || 1
-  return last
-    .map((v, i) => {
-      const x = pad + (i / Math.max(1, last.length - 1)) * (w - pad * 2)
-      const y = pad + (1 - (v - min) / range) * (h - pad * 2)
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
+function onStatusPieGlobalOut() {
+  showDonutCenterSummary.value = true
 }
 
-const lineSparkStroke = ['#002c5f', '#0ea5e9', '#0a9f68']
+/** ECharts 예시와 동일 구조: tooltip item, legend 상단 중앙, 도넛·둥근 모서리·강조 시 중앙 라벨 */
+const statusPieChartOption = computed(() => {
+  const seriesData = statusDonutSliceLabels.map((name, i) => ({
+    value: statusDonutSeries.value[i],
+    name,
+    itemStyle: { color: statusDonutColors[i] },
+  }))
 
-const statusDonutOptions = ref({
-  chart: {
-    type: 'donut',
-    toolbar: { show: false },
-    fontFamily: 'inherit',
-    offsetY: -8,
-    events: {
-      dataPointMouseEnter(_event, _chartContext, config) {
-        setDonutOverlayFromSlice(config.dataPointIndex)
-      },
-      dataPointMouseLeave() {
-        resetDonutOverlay()
+  const showCenter = showDonutCenterSummary.value
+
+  return {
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c}%',
+    },
+    legend: {
+      top: '5%',
+      left: 'center',
+      itemGap: 18,
+      textStyle: {
+        fontSize: 15,
+        fontWeight: 800,
+        color: '#475569',
       },
     },
-  },
-  labels: statusDonutSliceLabels,
-  colors: statusDonutColors,
-  plotOptions: {
-    pie: {
-      donut: {
-        size: '72%',
-        labels: {
+    graphic: showCenter
+      ? [
+          {
+            type: 'text',
+            left: 'center',
+            top: '47%',
+            z: 10,
+            style: {
+              text: `${equipmentTotalCount}대`,
+              textAlign: 'center',
+              fill: '#0f172a',
+              fontSize: 25,
+              fontWeight: 950,
+            },
+          },
+        ]
+      : [],
+    series: [
+      {
+        name: '설비 상태',
+        type: 'pie',
+        radius: ['40%', '70%'],
+        center: ['50%', '56%'],
+        avoidLabelOverlap: false,
+        itemStyle: {
+          borderRadius: 10,
+          borderColor: '#fff',
+          borderWidth: 2,
+        },
+        label: {
+          show: false,
+          position: 'center',
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: 40,
+            fontWeight: 'bold',
+            formatter: '{b}\n{c}%',
+          },
+        },
+        labelLine: {
           show: false,
         },
+        data: seriesData,
       },
-    },
-  },
-  dataLabels: { enabled: false },
-  legend: {
-    show: false,
-  },
-  stroke: { width: 3, colors: ['#ffffff'] },
-  tooltip: {
-    theme: 'light',
-    style: {
-      fontSize: '20px',
-      fontFamily: 'inherit',
-    },
-    fillSeriesColor: false,
-    y: { formatter: (v) => `${v}%` },
-  },
+    ],
+  }
 })
 
 /** 시간별 차트 — 패널 가변 높이에 맞춤 (데스크톱 정렬용) */
@@ -333,24 +347,19 @@ watch(
 <template>
   <main class="dashboard-shell">
     <aside class="dashboard-sidebar" aria-label="주요 메뉴">
-      <a class="dashboard-brand" href="#/dashboard">
+      <RouterLink class="dashboard-brand" :to="{ name: 'dashboard' }">
         <span class="brand-symbol">U</span>
         <span>
           <strong>UECADA</strong>
           <small>우리들의 스카다</small>
         </span>
-      </a>
+      </RouterLink>
 
       <nav class="dashboard-nav">
-        <a
-          v-for="item in navItems"
-          :key="item.label"
-          :class="{ active: item.active }"
-          :href="item.href"
-        >
+        <RouterLink v-for="item in navItems" :key="item.label" :to="item.to">
           <component :is="item.icon" :size="18" />
           <span>{{ item.label }}</span>
-        </a>
+        </RouterLink>
       </nav>
 
       <div class="sidebar-status">
@@ -384,14 +393,14 @@ watch(
             <CalendarDays :size="16" />
             2026-05-11 12:40
           </span>
-          <a class="ghost-button" href="#/alarms">
+          <RouterLink class="ghost-button" :to="{ name: 'alarms' }">
             <Bell :size="16" />
             <span>최근 알람</span>
-          </a>
-          <a class="icon-link" href="#/login">
+          </RouterLink>
+          <button type="button" class="icon-link" @click="logout">
             <LogOut :size="16" />
-            <span>로그인 화면</span>
-          </a>
+            <span>로그아웃</span>
+          </button>
         </div>
       </header>
 
@@ -412,10 +421,13 @@ watch(
                     <strong class="dash-oee-hero-pct" aria-label="전체 OEE">{{ totalOeeDisplay }}%</strong>
                   </div>
                   <span class="dash-oee-kpi-pill dash-oee-kpi-pill--trail" :class="yoyClass(totalOeeDelta)">
-                    전체
+                    <span class="dash-oee-kpi-pill-scope">전체</span>
                     <span class="dash-compare-slot">{{ compareLabel(dashboardPeriod) }}</span>
-                    <span class="dash-yoy-num-slot">{{ yoyAbs(totalOeeDelta) }}</span>%p
-                    <span class="dash-oee-kpi-pill-ar">{{ yoyArrow(totalOeeDelta) }}</span>
+                    <span class="dash-oee-kpi-pill-change">
+                      <span class="dash-oee-kpi-pill-ar" aria-hidden="true">{{ yoyArrow(totalOeeDelta) }}</span>
+                      <span class="dash-yoy-num-slot">{{ yoySignedDisplay(totalOeeDelta) }}</span>
+                      <span class="dash-oee-kpi-pill-unit">%p</span>
+                    </span>
                   </span>
                 </div>
               </article>
@@ -450,21 +462,6 @@ watch(
                         <span class="dash-yoy-num-slot">{{ yoyAbs(lineDelta(ln)) }}</span>%p
                       </span>
                     </div>
-                    <svg
-                      class="dash-line-spark"
-                      viewBox="0 0 120 36"
-                      preserveAspectRatio="none"
-                      aria-hidden="true"
-                    >
-                      <polyline
-                        fill="none"
-                        :stroke="lineSparkStroke[lineIdx]"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        :points="lineSparkPolyline(lineIdx)"
-                      />
-                    </svg>
                   </article>
                 </div>
               </article>
@@ -478,7 +475,7 @@ watch(
                 </div>
                 <div class="dash-oee-summary-chart">
                   <div ref="hourlyBarWrapRef" class="dash-oee-bar-wrap">
-                    <apexchart type="bar" :height="hourlyChartHeight" :options="oeeHourlyOptions" :series="oeeHourlySeries" />
+                    <apexchart type="line" :height="hourlyChartHeight" :options="oeeHourlyOptions" :series="oeeHourlySeries" />
                   </div>
                 </div>
               </article>
@@ -487,53 +484,22 @@ watch(
             <!-- 우측 ~1/3: 설비 상태 분포 → 알람 요약 -->
             <div class="dash-ref-col dash-ref-col--stack dash-ref-col--side">
               <article class="dashboard-panel dash-ref-status-panel">
-                <div class="dash-ref-panel-head dash-ref-status-panel-head dash-status-panel-toolbar">
+                <div class="dash-ref-panel-head dash-ref-status-panel-head">
                   <div>
                     <p class="panel-kicker">Equipment status</p>
                     <h2>설비 상태 분포</h2>
                   </div>
-                  <div class="dash-status-toolbar-actions">
-                    <label class="dash-status-search">
-                      <Search :size="16" class="dash-status-search-ico" aria-hidden="true" />
-                      <input type="search" placeholder="검색" autocomplete="off" />
-                    </label>
-                    <button type="button" class="dash-status-profile-btn" aria-label="사용자 프로필">
-                      <UserCircle :size="22" :stroke-width="2" />
-                    </button>
-                  </div>
                 </div>
                 <div class="dash-status-body">
                   <div class="dash-status-donut-wrap">
-                    <div
-                      class="dash-donut-center-overlay"
-                      :class="{ 'dash-donut-center-overlay--slice': donutOverlayIsHover }"
-                    >
-                      <template v-if="!donutOverlayIsHover">
-                        <span class="dash-donut-center-line">총 설비 대수:</span>
-                        <span class="dash-donut-center-value">{{ equipmentTotalCount }}대</span>
-                      </template>
-                      <template v-else>
-                        <span class="dash-donut-center-primary">{{ donutOverlayPrimary }}</span>
-                        <span class="dash-donut-center-value">{{ donutOverlayValue }}</span>
-                      </template>
-                    </div>
-                    <apexchart type="donut" height="360" :options="statusDonutOptions" :series="statusDonutSeries" />
+                    <v-chart
+                      class="dash-status-echart"
+                      :option="statusPieChartOption"
+                      autoresize
+                      @mouseover="onStatusPieMouseOver"
+                      @globalout="onStatusPieGlobalOut"
+                    />
                   </div>
-                  <ul class="dash-status-custom-legend" aria-label="설비 상태 범례">
-                    <li
-                      v-for="(label, i) in statusDonutSliceLabels"
-                      :key="label"
-                      class="dash-status-legend-item"
-                    >
-                      <span
-                        class="dash-status-legend-dot"
-                        :style="{ backgroundColor: statusDonutColors[i] }"
-                        aria-hidden="true"
-                      />
-                      <span class="dash-status-legend-label">{{ label }}</span>
-                      <span class="dash-status-legend-num">{{ statusDonutSeries[i] }}%</span>
-                    </li>
-                  </ul>
                 </div>
               </article>
 
@@ -679,7 +645,7 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   }
 
   .dash-ref-grid--dashboard > .dash-ref-col--stack:first-child > .dash-ref-line-section-panel {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -700,20 +666,16 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   }
 
   .dash-ref-line-section-panel .dash-ref-line-stack--detail {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
     align-self: stretch;
-    height: 100%;
-    grid-template-rows: minmax(0, 1fr);
+    height: auto;
+    grid-template-rows: none;
   }
 
   .dash-ref-line-detail-card {
-    height: 100%;
-    min-height: var(--dash-kpi-cell-min-h);
-  }
-
-  .dash-ref-line-detail-card .dash-line-spark {
-    margin-top: auto;
+    height: auto;
+    min-height: 0;
   }
 
   .dash-ref-hourly-panel .dash-oee-summary-chart {
@@ -769,6 +731,10 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
 @media (min-width: 1100px) {
   .dash-ref-line-stack {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dash-ref-line-stack.dash-ref-line-stack--detail {
+    min-height: 0;
   }
 }
 
@@ -964,16 +930,17 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   min-width: 17rem;
 }
 
+/* OEE 총괄 증감: 국내 시세(상승 빨강·하락 파랑) — 라인 카드와 동일 톤 */
 .dash-oee-kpi-pill.dash-yoy--inc {
-  background: rgba(16, 185, 129, 0.14);
-  color: #047857;
-  border-color: rgba(16, 185, 129, 0.32);
+  background: rgba(217, 45, 32, 0.1);
+  color: #b91c1c;
+  border-color: rgba(217, 45, 32, 0.28);
 }
 
 .dash-oee-kpi-pill.dash-yoy--dec {
-  background: rgba(59, 130, 246, 0.12);
-  color: #1d4ed8;
-  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(0, 87, 164, 0.1);
+  color: #0057a4;
+  border-color: rgba(0, 87, 164, 0.28);
 }
 
 .dash-oee-kpi-pill.dash-yoy--flat {
@@ -982,9 +949,44 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   border-color: #e2e8f0;
 }
 
+.dash-oee-kpi-pill-scope {
+  font-weight: 800;
+  color: inherit;
+  opacity: 0.92;
+}
+
+.dash-oee-kpi-pill-change {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-weight: 950;
+}
+
+.dash-oee-kpi-pill-unit {
+  font-weight: 800;
+  font-size: 0.92em;
+  opacity: 0.88;
+}
+
 .dash-oee-kpi-pill-ar {
   font-weight: 950;
-  font-size: 12px;
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+.dash-oee-kpi-pill.dash-yoy--inc .dash-oee-kpi-pill-ar,
+.dash-oee-kpi-pill.dash-yoy--inc .dash-yoy-num-slot {
+  color: #d92d20;
+}
+
+.dash-oee-kpi-pill.dash-yoy--dec .dash-oee-kpi-pill-ar,
+.dash-oee-kpi-pill.dash-yoy--dec .dash-yoy-num-slot {
+  color: #0057a4;
+}
+
+.dash-oee-kpi-pill.dash-yoy--flat .dash-oee-kpi-pill-ar,
+.dash-oee-kpi-pill.dash-yoy--flat .dash-yoy-num-slot {
+  color: #64748b;
 }
 
 .dash-oee-kpi-pill--trail {
@@ -1057,13 +1059,6 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   line-height: 1.1;
 }
 
-.dash-line-spark {
-  width: 100%;
-  height: 30px;
-  display: block;
-  flex-shrink: 0;
-}
-
 .dash-ref-hourly-panel {
   padding: 28px 28px 26px !important;
   display: flex;
@@ -1085,86 +1080,10 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   margin-top: 4px;
 }
 
-.dash-status-panel-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px 20px;
-}
-
-.dash-status-toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.dash-status-search {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  min-width: 140px;
-}
-
-.dash-status-search:focus-within {
-  border-color: #94a3b8;
-  background: #ffffff;
-}
-
-.dash-status-search-ico {
-  flex-shrink: 0;
-  color: #64748b;
-}
-
-.dash-status-search input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  color: #0f172a;
-  outline: none;
-}
-
-.dash-status-search input::placeholder {
-  color: #94a3b8;
-}
-
-.dash-status-profile-btn {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #475569;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.dash-status-profile-btn:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  color: #0f172a;
-}
-
-.dash-donut-center-line {
-  font-size: 15px;
-  font-weight: 800;
-  color: #64748b;
-  letter-spacing: 0.02em;
+.dash-status-echart {
+  width: 100%;
+  height: 380px;
+  min-height: 340px;
 }
 
 .dash-alarm-tile-ico {
@@ -1395,105 +1314,11 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
   max-width: none;
   margin: 0 auto;
   flex: 0 0 auto;
-  min-height: 380px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.dash-status-custom-legend {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 14px 18px 16px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 14px 28px;
-  border-radius: 12px;
-  background: #f8fafc;
-  border: 1px solid #e8edf2;
-}
-
-.dash-status-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-}
-
-.dash-status-legend-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
-  flex-shrink: 0;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
-}
-
-.dash-status-legend-label {
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: #475569;
-}
-
-.dash-status-legend-num {
-  font-size: 17px;
-  font-weight: 950;
-  letter-spacing: -0.02em;
-  color: #0f172a;
-  margin-left: 4px;
-}
-
-.dash-donut-center-overlay {
-  position: absolute;
-  left: 50%;
-  top: 43%;
-  transform: translate(-50%, -50%);
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: min(240px, 56%);
-  max-width: min(240px, 56%);
-  pointer-events: none;
-  text-align: center;
-  transition: color 0.15s ease;
-}
-
-.dash-donut-center-primary {
-  width: 100%;
-  margin: 0;
-  font-size: 22px;
-  font-weight: 800;
-  color: #475569;
-  line-height: 1.25;
-  letter-spacing: 0.02em;
-  text-align: center;
-}
-
-.dash-donut-center-value {
-  width: 100%;
-  margin: 0;
-  font-size: 22px;
-  font-weight: 950;
-  letter-spacing: -0.02em;
-  color: #0f172a;
-  line-height: 1.25;
-  text-align: center;
-}
-
-.dash-donut-center-overlay--slice .dash-donut-center-primary {
-  font-weight: 950;
-  color: #0f172a;
-}
-
-.dash-donut-center-overlay--slice .dash-donut-center-value {
-  color: #002c5f;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .dash-ref-alarm-hub {
@@ -1672,10 +1497,6 @@ section.dashboard-main.dash-dashboard-fill .dash-ref-grid--dashboard {
 
   .dash-ref-line-detail-card {
     height: auto;
-  }
-
-  .dash-ref-line-detail-card .dash-line-spark {
-    margin-top: 0;
   }
 
   .dash-scada-surface {

@@ -6,7 +6,6 @@ import {
   CalendarDays,
   Factory,
   Gauge,
-  LayoutDashboard,
   LogOut,
   MapPinned,
   MessageSquare,
@@ -14,16 +13,12 @@ import {
   Users,
   Wrench,
 } from 'lucide-vue-next'
+import { RouterLink } from 'vue-router'
+import { useAppNav } from '@/composables/useAppNav'
+import { useLogout } from '@/composables/useLogout'
 
-const navItems = [
-  { label: '대시보드', icon: LayoutDashboard, href: '#/dashboard' },
-  { label: '레이아웃', icon: MapPinned, href: '#/layout' },
-  { label: '라인 상세', icon: BarChart3, href: '#/lines', active: true },
-  { label: '설비 제어', icon: Wrench, href: '#/equipment' },
-  { label: '알람 및 이력', icon: Bell, href: '#/alarms' },
-  { label: '사용자·권한', icon: Users, href: '#/users' },
-  { label: '커뮤니티', icon: MessageSquare, href: '#/community' },
-]
+const { navItems } = useAppNav('line')
+const logout = useLogout()
 
 const lines = [
   {
@@ -71,24 +66,19 @@ const lines = [
 <template>
   <main class="dashboard-shell">
     <aside class="dashboard-sidebar" aria-label="주요 메뉴">
-      <a class="dashboard-brand" href="#/dashboard">
+      <RouterLink class="dashboard-brand" :to="{ name: 'dashboard' }">
         <span class="brand-symbol">U</span>
         <span>
           <strong>UECADA</strong>
           <small>우리들의 스카다</small>
         </span>
-      </a>
+      </RouterLink>
 
       <nav class="dashboard-nav">
-        <a
-          v-for="item in navItems"
-          :key="item.label"
-          :class="{ active: item.active }"
-          :href="item.href"
-        >
+        <RouterLink v-for="item in navItems" :key="item.label" :to="item.to">
           <component :is="item.icon" :size="18" />
           <span>{{ item.label }}</span>
-        </a>
+        </RouterLink>
       </nav>
 
       <div class="sidebar-status">
@@ -100,7 +90,7 @@ const lines = [
 
     <section class="dashboard-main">
       <header class="dashboard-header">
-        <div>
+        <div class="dashboard-header-titles">
           <p class="dashboard-kicker">Line Analytics</p>
           <h1>라인별 상세보기</h1>
         </div>
@@ -109,14 +99,14 @@ const lines = [
             <CalendarDays :size="16" />
             2026-05-11 12:40
           </span>
-          <a class="ghost-button" href="#/layout">
+          <RouterLink class="ghost-button" :to="{ name: 'layout' }">
             <MapPinned :size="16" />
             <span>레이아웃</span>
-          </a>
-          <a class="icon-link" href="#/login">
+          </RouterLink>
+          <button type="button" class="icon-link" @click="logout">
             <LogOut :size="16" />
-            <span>로그인 화면</span>
-          </a>
+            <span>로그아웃</span>
+          </button>
         </div>
       </header>
 

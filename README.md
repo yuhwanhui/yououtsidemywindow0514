@@ -1,52 +1,95 @@
-# UECADA · Frontend
+# UECADA — PHM 대시보드 (Vue 3)
 
-SCADA 통합 대시보드 및 관리 화면을 위한 Vue 기반 프론트엔드 저장소입니다.
-
-실행·빌드는 저장소 루트의 **`UECADA/`** 폴더에서 진행합니다 (`package.json`, `vite.config.js`, `src/` 위치).
-
-## 주요 수정 사항 (`feat/frontend`)
-
-### 대시보드 (`src/components/DashboardPage.vue`)
-
-| 영역 | 내용 |
-|------|------|
-| **레이아웃** | 좌측(약 2/3): 전체 OEE → 라인별 카드 → 시간별 막대 / 우측(약 1/3): 설비 상태 도넛 → 알람 요약 |
-| **전체 OEE** | 전일·전월·전년 비교 배지 단일화, 비교 라벨·숫자 슬롯으로 버튼 전환 시 레이아웃 점프 완화 |
-| **라인별 OEE** | 카드형 UI, 스파크라인, **상세 보기 버튼 제거**, 카드 높이·패딩 최적화 |
-| **시간별 OEE** | Apex 막대 차트 옵션(범례·그리드·축) 조정으로 플롯 영역 확대, 래퍼 `ResizeObserver`로 패널 높이에 맞춤 |
-| **데스크톱 정렬** | `dash-dashboard-fill` + 그리드 `stretch`, 라인·시간별 패널 `flex: 1 1 0`으로 높이 균등 분배, 라인 3열 카드 동일 행 높이(`minmax(0, 1fr)`), 알람 블록 `margin-top: auto`로 하단 정렬 |
-| **반응형** | **1180px 이하**에서는 위 확장 레이아웃 규칙 해제, 세로 스택 유지 |
-
-### 공통 스타일 (`src/style.css`)
-
-- 대시보드 셸·헤더 등 글로벌 레이아웃 토큰과 연동되는 스타일 조정
-
-### 기타 페이지 컴포넌트
-
-동일 브랜치에서 아래 파일에 레이아웃·클래스 일관성 관련 수정이 포함될 수 있습니다.
-
-- `AlarmPage.vue`, `CommunityPage.vue`, `EquipmentDetailPage.vue`
-- `FactoryLayoutPage.vue`, `LineDetailPage.vue`, `SwmpTestPage.vue`, `UserManagementPage.vue`
-
-## 로컬 실행
-
-```bash
-cd UECADA
-npm install
-npm run dev
-```
-
-## 프로덕션 빌드
-
-```bash
-cd UECADA
-npm run build
-```
-
-## 브랜치
-
-- **`feat/frontend`**: 프론트엔드 UI·대시보드 개선 작업
+설비통합관제(SCADA/PHM) UI 프로젝트입니다.
 
 ---
 
-저장소: [sky9464881/UECADA](https://github.com/sky9464881/UECADA) · 브랜치 [`feat/frontend`](https://github.com/sky9464881/UECADA/tree/feat/frontend)
+## 변경·분석 기록 (2026-05-14)
+
+당일 코드베이스를 7단계(구조 → 타입 → API → 로딩·에러·빈 상태 → Vue 안티패턴 → 실시간 → 보안) 기준으로 검토한 뒤, 아래 **우선순위 순**으로 실제 수정을 반영했습니다.
+
+### 분석 요약 (검토 시점 기준)
+
+| 구분 | 내용 |
+|------|------|
+| 구조 | `src/`는 페이지형 `.vue`와 `style.css` 중심이었고, `composables/`, `types/`, `api/` 디렉터리는 없었음. |
+| 타입 | 대부분 JavaScript + `<script setup>` — 프로젝트 규칙 대비 TypeScript 미도입 상태였음. |
+| API | Axios·인터셉터·백엔드 연동 없음. 대시보드·알람은 정적 목업 데이터. |
+| UI 상태 | 알람 등 데이터 fetch UI에 로딩·에러·빈 상태 분기 없음. |
+| 라우팅 | `window.location.hash` + `App.vue`의 `v-if` 분기 — Vue Router 미사용. |
+| 보안 | SWMP URL이 소스에 하드코딩됨. 토큰 저장 로직 없음. 관리자 화면 가드 없음. |
+
+### 이번에 적용한 수정 (우선순위 반영)
+
+1. **환경 변수 · Axios**
+   - `.env.example` 추가: `VITE_API_BASE_URL`, `VITE_USE_MOCK_ALARMS`, `VITE_SWMP_DEFAULT_URL`
+   - 로컬용 `.env`는 `.gitignore`에 포함(저장소에 커밋하지 않음). 개발 시 `.env.example`을 복사해 사용.
+   - `src/api/client.ts`: `import.meta.env.VITE_API_BASE_URL` 기준 `axios.create`
+   - `src/api/interceptors.ts`: 요청에 `Authorization: Bearer …` 부착, **401 시 세션 정리 후 `/login`으로 이동** (처리는 인터셉터에만 집중)
+   - `src/api/alarmApi.ts`: API URL이 비어 있거나 `VITE_USE_MOCK_ALARMS=true`이면 지연 목업 응답, 그렇지 않으면 `GET /alarms` 호출
+
+2. **Vue Router 4 · Pinia · 라우터 가드**
+   - `createWebHashHistory()`로 기존 `#/…` URL과 호환 유지
+   - `src/router/index.ts`: 로그인 제외 경로에 `requiresAuth`, `/users`에 `roles: ['admin']`
+   - `src/stores/auth.ts`: **accessToken은 `sessionStorage`만 사용**(localStorage 사용 안 함), 역할 `admin` | `operator`
+   - `main.ts`에서 `setAuthRouter(router)` 후 인터셉터 등록해 401 시 라우터 이동 가능하도록 연결
+
+3. **TypeScript 진입점·모듈**
+   - `index.html` → `/src/main.ts`
+   - `tsconfig.json`, `src/vite-env.d.ts`(`.vue` 모듈 선언 포함)
+   - `vite.config.ts` + `@` → `src` 별칭
+   - 빌드: `vue-tsc --noEmit && vite build`
+
+4. **TanStack Vue Query + 알람 화면 3종 상태**
+   - `src/composables/useAlarms.ts`: `refetchInterval: 60_000`
+   - `AlarmPage.vue`를 `lang="ts"`로 전환하고 **로딩 / 에러+재시도 / 빈 목록** UI 구현
+
+5. **대형 컴포넌트 분리**
+   - `DashboardPage.vue` 등 초대형 SFC 분할은 **이번 범위에서 미완료**(후속 작업으로 README에만 명시). 대신 사이드바 네비 중복을 줄이기 위해 `useAppNav` 도입.
+
+6. **SWMP 하드코딩 제거**
+   - `SwmpTestPage.vue` 기본 URL을 `import.meta.env.VITE_SWMP_DEFAULT_URL`로 변경(미설정 시 빈 문자열)
+
+### 공통 리팩터
+
+- `src/composables/useAppNav.ts`: 기본·라인 상세(`'line'`) 네비 정의 통합
+- `src/composables/useLogout.ts`: 로그아웃 시 세션 제거 + 로그인 라우트 이동
+- 주요 페이지: `#/…` 앵커 → `RouterLink`, 헤더의 «로그인 화면» → **로그아웃** 버튼
+- `LoginPage.vue`: 역할 선택(데모) + `redirect` 쿼리 지원
+
+### 로컬 실행
+
+```bash
+npm install
+cp .env.example .env   # Windows는 copy 명령 사용 가능
+npm run dev
+```
+
+- **운영자**로 로그인 후 `/users`(사용자·권한) 접근 시, 라우터 가드에 의해 대시보드로 되돌아갑니다.
+- **관리자**로 로그인하면 `/users` 접근이 허용됩니다.
+
+### 남은 권장 과제
+
+- `DashboardPage.vue` 등 **200줄 초과 SFC**를 패널·차트·사이드바 단위로 분할
+- 대시보드 지표도 Vue Query + 실 API(또는 SSE)로 이관
+- 실제 백엔드 로그인 API와 토큰 갱신·만료 정책 연동
+- `vue-tsc` 경고 0을 목표로 나머지 `.vue`에 `lang="ts"` 및 `defineProps`/`defineEmits` 제네릭 점진 적용
+
+---
+
+## 스크립트
+
+| 명령 | 설명 |
+|------|------|
+| `npm run dev` | Vite 개발 서버 |
+| `npm run build` | 타입 검사 후 프로덕션 빌드 |
+| `npm run typecheck` | `vue-tsc --noEmit`만 실행 |
+| `npm run preview` | 빌드 결과 프리뷰 |
+
+---
+
+## 기술 스택 (현재 `package.json` 기준)
+
+Vue 3, Vite, Pinia, Vue Router 4, Axios, TanStack Vue Query, ApexCharts, Lucide Vue Next
+
+프로젝트 규칙(`.cursor/rules/phm-frontend-standards.mdc`)과의 정합은 위 «남은 권장 과제»를 통해 계속 맞춰 나가면 됩니다.

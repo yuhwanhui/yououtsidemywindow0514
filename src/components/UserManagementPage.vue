@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import {
   Bell,
   CalendarDays,
@@ -15,16 +16,11 @@ import {
   Users,
   Wrench,
 } from 'lucide-vue-next'
+import { useAppNav } from '@/composables/useAppNav'
+import { useLogout } from '@/composables/useLogout'
 
-const navItems = [
-  { label: '대시보드', icon: LayoutDashboard, href: '#/dashboard' },
-  { label: '레이아웃', icon: MapPinned, href: '#/layout' },
-  { label: '설비 제어', icon: Wrench, href: '#/equipment' },
-  { label: '알람 및 이력', icon: Bell, href: '#/alarms' },
-  { label: '사용자·권한', icon: Users, href: '#/users', active: true },
-  { label: '커뮤니티', icon: MessageSquare, href: '#/community' },
-  { label: 'SWMP 테스트', icon: Wrench, href: '#/swmp-test' },
-]
+const { navItems } = useAppNav()
+const logout = useLogout()
 
 const roles = [
   {
@@ -151,24 +147,19 @@ function onSummaryRoleCardKeydown(e, roleName) {
 <template>
   <main class="dashboard-shell">
     <aside class="dashboard-sidebar" aria-label="주요 메뉴">
-      <a class="dashboard-brand" href="#/dashboard">
+      <RouterLink class="dashboard-brand" :to="{ name: 'dashboard' }">
         <span class="brand-symbol">U</span>
         <span>
           <strong>UECADA</strong>
           <small>우리들의 스카다</small>
         </span>
-      </a>
+      </RouterLink>
 
       <nav class="dashboard-nav">
-        <a
-          v-for="item in navItems"
-          :key="item.label"
-          :class="{ active: item.active }"
-          :href="item.href"
-        >
+        <RouterLink v-for="item in navItems" :key="item.label" :to="item.to">
           <component :is="item.icon" :size="18" />
           <span>{{ item.label }}</span>
-        </a>
+        </RouterLink>
       </nav>
 
       <div class="sidebar-status">
@@ -179,12 +170,10 @@ function onSummaryRoleCardKeydown(e, roleName) {
     </aside>
 
     <section class="dashboard-main user-perm-dashboard-main">
-      <header class="dashboard-header user-perm-dashboard-header">
-        <div class="user-perm-header-left">
+      <header class="dashboard-header">
+        <div class="dashboard-header-titles">
           <p class="dashboard-kicker">User &amp; Access Control</p>
-          <div class="user-perm-title-row">
-            <h1 class="user-perm-page-title">사용자·권한 관리</h1>
-          </div>
+          <h1>사용자·권한 관리</h1>
         </div>
         <div class="header-actions">
           <span class="current-time">
@@ -195,10 +184,10 @@ function onSummaryRoleCardKeydown(e, roleName) {
             <UserPlus :size="17" />
             <span>사용자 추가</span>
           </button>
-          <a class="icon-link" href="#/login">
+          <button type="button" class="icon-link" @click="logout">
             <LogOut :size="16" />
-            <span>로그인 화면</span>
-          </a>
+            <span>로그아웃</span>
+          </button>
         </div>
       </header>
 
