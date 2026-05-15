@@ -4,6 +4,20 @@
 
 ---
 
+## 변경 기록 (2026-05-15)
+
+**UI·스타일** 위주 수정입니다.
+
+| 구분 | 파일 | 내용 |
+|------|------|------|
+| 설비별 화면 | `src/components/EquipmentDetailPage.vue` | **설비 카테고리 선택** 그리드에 공장 레이아웃과 동일한 공정 아이콘 적용: 주조 `Flame`, 가공 `Cog`, 세척 `Droplets`, 조립 `Wrench`, 검사 `Search` (기존 공통 `Factory` 아이콘 대체) |
+| 설비별 화면 | `src/style.css` | `.equipment-category-icon-wrap` — 카테고리 셀 아이콘 정렬·테두리·색 상속 정리 |
+| 사용자·권한 | `src/style.css` | **요약 카드(셀) 버튼** — 메뉴 열림(`.user-perm-summary-card--open`), 클릭 중(`:active`), 열린 상태에서 재클릭(`--open:active`)일 때 `box-shadow` 강도 완화 |
+
+빌드 확인: `npm run build` (`vue-tsc` + Vite) 통과 기준.
+
+---
+
 ## 변경·분석 기록 (2026-05-14)
 
 당일 코드베이스를 7단계(구조 → 타입 → API → 로딩·에러·빈 상태 → Vue 안티패턴 → 실시간 → 보안) 기준으로 검토한 뒤, 아래 **우선순위 순**으로 실제 수정을 반영했습니다.
